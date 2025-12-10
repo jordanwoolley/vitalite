@@ -7,23 +7,16 @@ export async function GET(req: NextRequest) {
   const userIdParam = url.searchParams.get("userId");
 
   if (!userIdParam) {
-    return NextResponse.json(
-      { error: "Missing userId" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing userId" }, { status: 400 });
   }
 
   const userId = Number(userIdParam);
   if (Number.isNaN(userId)) {
-    return NextResponse.json(
-      { error: "Invalid userId" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
   }
 
   try {
     await syncUserStrava(userId);
-    // after sync, go back to the main page
     return NextResponse.redirect(new URL("/", req.url));
   } catch (err) {
     console.error("Sync error:", err);
