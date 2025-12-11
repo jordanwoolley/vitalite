@@ -1,5 +1,6 @@
 import type React from "react";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import {
   getUsers,
   getRecentDailyPoints,
@@ -17,15 +18,52 @@ type PageProps = {
   searchParams: Promise<SearchParams>;
 };
 
+const SESSION_COOKIE = "vitalite_user_id";
+
 export default async function Home({ searchParams }: PageProps) {
-  // ✅ In this Next.js version, searchParams is a Promise – so await it
   const sp = await searchParams;
 
+  const cookieStore = cookies();
+  const userIdCookie = cookieStore.get(SESSION_COOKIE)?.value;
+
   const users = await getUsers();
+  const authUrl = getStravaAuthorizeUrl();
+
+  // Determine the "active" user for this browser from the cookie
+  const activeUser = userIdCookie
+    ? users.find((u) => u.id === Number(userIdCookie))
+    : undefined;
+
+  // If no active user, show a simple landing page with a connect button
+  if (!activeUser) {
+    return (
+      <main style={{ padding: "1.5rem", maxWidth: 960, margin: "0 auto" }}>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Vitalité</h1>
+        <p style={{ marginTop: "1rem", marginBottom: "1rem" }}>
+          Connect your Strava account to see your own daily Vitalité points.
+        </p>
+        <a
+          href={authUrl}
+          style={{
+            padding: "0.4rem 0.8rem",
+            borderRadius: 4,
+            border: "1px solid #333",
+            fontSize: "0.9rem",
+            textDecoration: "none",
+          }}
+        >
+          + Connect Strava account
+        </a>
+      </main>
+    );
+  }
+
+  // From here down we only care about this active user
   const allPoints = await getRecentDailyPoints(365);
   const activities = await getAllActivities();
-  const authUrl = getStravaAuthorizeUrl();
-  const userMap = new Map(users.map((u) => [u.id, u]));
+
+  const userPoints = allPoints.filter((p) => p.userId === activeUser.id);
+  const userActivities = activities.filter((a) => a.userId === activeUser.id);
 
   // --- determine which week we're looking at ---
 
@@ -40,26 +78,25 @@ export default async function Home({ searchParams }: PageProps) {
   // If we have any points, default to the most recent week's Monday.
   // Otherwise default to START_DATE_STR's Monday.
   const latestDate =
-    allPoints.length > 0
-      ? allPoints
+    userPoints.length > 0
+      ? userPoints
           .map((p) => p.date)
           .sort()
           .slice(-1)[0]
       : START_DATE_STR;
 
-  const defaultWeekStart = getWeekStart(latestDate); // Monday of latest date
   const selectedWeekStart = weekParam
     ? getWeekStart(weekParam)
-    : defaultWeekStart;
+    : getWeekStart(latestDate);
   const weekStartStr = formatDate(selectedWeekStart);
   const weekEnd = addDays(selectedWeekStart, 6);
   const weekEndStr = formatDate(weekEnd);
 
-  // filter points & activities for this week
-  const weekPoints = allPoints.filter(
+  // filter points & activities for this week (active user only)
+  const weekPoints = userPoints.filter(
     (p) => p.date >= weekStartStr && p.date <= weekEndStr
   );
-  const weekActivities = activities.filter(
+  const weekActivities = userActivities.filter(
     (a) => a.date >= weekStartStr && a.date <= weekEndStr
   );
 
@@ -81,25 +118,20 @@ export default async function Home({ searchParams }: PageProps) {
     weekActivities.filter((a) => a.date === d)
   );
   const hasAnyPointsThisWeek = dailyValues.some((v) => v > 0);
-  const maxPoints = dailyValues.length
-    ? Math.max(...dailyValues, 8)
-    : 8;
+  const maxPoints = dailyValues.length ? Math.max(...dailyValues, 8) : 8;
 
   // previous / next week links
   const prevWeekStartStr = formatDate(addDays(selectedWeekStart, -7));
   const nextWeekStartStr = formatDate(addDays(selectedWeekStart, 7));
 
-  // Auto-sync check: if no activities from today, trigger sync
+  // Auto-sync check: if no activities from today for THIS user, trigger sync
   const todayStr = formatDate(new Date());
-  const hasTodayActivities = activities.some((a) => a.date === todayStr);
-  const shouldAutoSync = users.length > 0 && !hasTodayActivities && !sp?.noAutoSync;
-  
+  const hasTodayActivities = userActivities.some((a) => a.date === todayStr);
+  const shouldAutoSync =
+    !!activeUser && !hasTodayActivities && !sp?.noAutoSync;
+
   if (shouldAutoSync) {
-    // Redirect to sync the first user
-    const firstUser = users[0];
-    if (firstUser) {
-      redirect(`/api/sync?userId=${firstUser.id}`);
-    }
+    redirect(`/api/sync?userId=${activeUser.id}`);
   }
 
   // ---- day of week helpers ----
@@ -128,27 +160,13 @@ export default async function Home({ searchParams }: PageProps) {
           marginBottom: "1.2rem",
         }}
       >
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 600 }}>
-          Vitalité
-        </h1>
-        {users.length > 0 ? (
-          <UserSettings users={users} authUrl={authUrl} />
-        ) : (
-          <a
-            href={authUrl}
-            style={{
-              padding: "0.4rem 0.8rem",
-              borderRadius: 4,
-              border: "1px solid #333",
-              fontSize: "0.9rem",
-              textDecoration: "none",
-            }}
-          >
-            + Connect new Strava account
-          </a>
-        )}
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Vitalité</h1>
+        <div style={{ fontSize: "0.9rem" }}>
+          Signed in as <strong>{activeUser.name || "Unknown user"}</strong>
+        </div>
+        {/* Only pass this single user into settings to preserve privacy */}
+        <UserSettings users={[activeUser]} authUrl={authUrl} />
       </div>
-
 
       {/* Week header + nav + totals */}
       <section style={{ marginBottom: "1.2rem" }}>
@@ -180,10 +198,7 @@ export default async function Home({ searchParams }: PageProps) {
         </div>
         <div style={{ fontSize: "0.9rem" }}>
           Weekly total:{" "}
-          <strong>
-            {cappedWeekTotal} / 40
-          </strong>{" "}
-          points{" "}
+          <strong>{cappedWeekTotal} / 40</strong> points{" "}
           {rawWeekTotal > 40 && (
             <span style={{ color: "#b00" }}>
               (raw {rawWeekTotal} capped at 40)
@@ -221,6 +236,8 @@ export default async function Home({ searchParams }: PageProps) {
         )}
       </section>
 
+      {/* If you use UserListWithDob somewhere, make sure to only show this user */}
+      {/* <UserListWithDob users={[activeUser]} /> */}
     </main>
   );
 }
@@ -312,8 +329,18 @@ function DailyChart({
               {tooltipText && <title>{tooltipText}</title>}
             </rect>
             {activityType && v > 0 && (
-              <g transform={`translate(${x + barWidth / 2 - 8}, ${Math.max(y + barHeight / 2 - 8, y + 2)})`}>
-                <svg width="16" height="16" viewBox="0 -960 960 960" fill="#fff" opacity="0.9">
+              <g
+                transform={`translate(${
+                  x + barWidth / 2 - 8
+                }, ${Math.max(y + barHeight / 2 - 8, y + 2)})`}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 -960 960 960"
+                  fill="#fff"
+                  opacity="0.9"
+                >
                   <path
                     d={activityType === "run" ? runIconPath : workoutIconPath}
                   />
@@ -347,20 +374,25 @@ function DailyChart({
 function PieChart({ current, max }: { current: number; max: number }) {
   const pct = Math.min(current / max, 1);
   const r = 52;
-  const cx = 64, cy = 64;
+  const cx = 64,
+    cy = 64;
   const stroke = 12;
   const circumference = 2 * Math.PI * r;
   const progress = pct * circumference;
   return (
     <svg width={128} height={128}>
       <circle
-        cx={cx} cy={cy} r={r}
+        cx={cx}
+        cy={cy}
+        r={r}
         fill="#f6f8fa"
         stroke="#eee"
         strokeWidth={stroke}
       />
       <circle
-        cx={cx} cy={cy} r={r}
+        cx={cx}
+        cy={cy}
+        r={r}
         fill="none"
         stroke="#4a90e2"
         strokeWidth={stroke}
@@ -370,7 +402,8 @@ function PieChart({ current, max }: { current: number; max: number }) {
         transform={`rotate(-90 ${cx} ${cy})`}
       />
       <text
-        x={cx} y={cy+7}
+        x={cx}
+        y={cy + 7}
         textAnchor="middle"
         fontSize="1.5rem"
         fill="#222"
@@ -379,7 +412,8 @@ function PieChart({ current, max }: { current: number; max: number }) {
         {current}
       </text>
       <text
-        x={cx} y={cy+28}
+        x={cx}
+        y={cy + 28}
         textAnchor="middle"
         fontSize="0.95rem"
         fill="#555"
