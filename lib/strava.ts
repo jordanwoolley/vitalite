@@ -203,10 +203,11 @@ export async function syncUserStrava(userId: number) {
   const userActivities: Activity[] = [];
 
   for (const a of activities) {
-    const localDate = new Date(a.start_date_local);
-    const dayStr = localDate.toISOString().slice(0, 10); // YYYY-MM-DD
-
-    // Only *count* activities from our configured start date onwards.
+    const dayStr =
+      typeof a.start_date_local === "string"
+        ? a.start_date_local.slice(0, 10)
+        : new Date(a.start_date).toISOString().slice(0, 10);
+  
     if (dayStr < START_DATE_STR) continue;
 
     const movingMins = a.moving_time / 60;
