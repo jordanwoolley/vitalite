@@ -217,22 +217,7 @@ export default function UserSettings({
             })}
 
             {/* optional connect link if you ever show settings without active user */}
-            <div style={{ padding: "0.5rem 1rem" }}>
-              <a
-                href={authUrl}
-                style={{
-                  display: "inline-block",
-                  padding: "0.25rem 0.5rem",
-                  fontSize: "0.85rem",
-                  border: "1px solid #333",
-                  borderRadius: 3,
-                  textDecoration: "none",
-                  color: "#333",
-                }}
-              >
-                + Connect another Strava account
-              </a>
-            </div>
+            
           </div>
         </>
       )}

@@ -5,16 +5,17 @@ import {
   upsertDailyPoints,
   upsertUser,
   User,
-  replaceUserActivitiesSince,
+  replaceUserActivities, // ← use this
   Activity,
 } from "./db";
+
 
 const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID!;
 const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET!;
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL!;
 
 // ✏️ Start date for counting points (inclusive)
-export const START_DATE_STR = "2025-12-01"; // YYYY-MM-DD
+//export const START_DATE_STR = "2025-12-01"; // YYYY-MM-DD
 
 /**
  * Calculate age from date of birth (YYYY-MM-DD format)
@@ -200,17 +201,7 @@ export async function syncUserStrava(userId: number) {
 
   const activities = (await resp.json()) as any[];
 
-  console.log("syncUserStrava", {
-    userId,
-    fetched: activities.length,
-    sampleDates: activities.slice(0, 5).map(a => ({
-      start_date_local: a.start_date_local,
-      start_date: a.start_date,
-    })),
-  });
-  
-
-  const userActivities: Activity[] = [];
+   const userActivities: Activity[] = [];
 
   const dates = userActivities.map(a => a.date).sort();
 console.log("stored date range", { first: dates[0], last: dates[dates.length - 1] });
@@ -222,7 +213,7 @@ for (const a of activities) {
       ? a.start_date_local.slice(0, 10)
       : new Date(a.start_date).toISOString().slice(0, 10);
 
-  if (dayStr < START_DATE_STR) continue;
+  //if (dayStr < START_DATE_STR) continue;
 
     const movingMins = a.moving_time / 60;
     const distanceKm = a.distance ? a.distance / 1000 : 0;
@@ -243,7 +234,7 @@ for (const a of activities) {
   }
 
   // Replace stored activities for this user from the start date onwards
-  await replaceUserActivitiesSince(userId, START_DATE_STR, userActivities);
+  await replaceUserActivities(userId, userActivities);
 
   // Group activities by day and calculate points using new scoring system
   const activitiesByDay: Record<string, Activity[]> = {};

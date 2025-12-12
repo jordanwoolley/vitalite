@@ -1,7 +1,7 @@
 // app/api/strava/callback/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeCodeForToken } from "@/lib/strava";
-import { upsertUser } from "@/lib/db";
+import { upsertUser, clearAllData } from "@/lib/db";
 
 const SESSION_COOKIE = "vitalite_user_id";
 
@@ -18,7 +18,9 @@ export async function GET(req: NextRequest) {
     const tokens: any = await exchangeCodeForToken(code);
     const athlete = tokens.athlete;
 
-    // upsertUser should RETURN the saved User, including its id 🔑
+    // ✅ Single-user mode: wipe existing data before creating the new user
+    await clearAllData();
+
     const user = await upsertUser({
       stravaAthleteId: athlete.id,
       name: `${athlete.firstname || ""} ${athlete.lastname || ""}`.trim(),
@@ -27,14 +29,13 @@ export async function GET(req: NextRequest) {
       tokenExpiresAt: tokens.expires_at,
     });
 
-    // Redirect back to home, with a cookie tying this browser to that user 🔑
     const res = NextResponse.redirect(new URL("/", req.url));
     res.cookies.set(SESSION_COOKIE, String(user.id), {
       httpOnly: true,
       secure: true,
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24 * 365, // 1 year
+      maxAge: 60 * 60 * 24 * 365,
     });
     return res;
   } catch (e) {

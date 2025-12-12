@@ -4,8 +4,8 @@ import path from "path";
 import { kv } from "@vercel/kv";
 
 const DB_PATH = path.join(process.cwd(), "db.json");
-const DB_KEY = "vitality:db"; // Key for Vercel KV storage
-const USE_KV = !!process.env.KV_URL; // Use KV if KV_URL is set (Vercel), otherwise use local file
+const DB_KEY = "vitality:db";
+const USE_KV = !!process.env.KV_URL;
 
 export type User = {
   id: number;
@@ -25,7 +25,7 @@ export type DailyPoints = {
   date: string; // YYYY-MM-DD
   workoutMinutes: number;
   steps: number;
-  points: number; // "raw" points for that day
+  points: number;
 };
 
 export type Activity = {
@@ -58,7 +58,6 @@ export async function loadDb(): Promise<DbShape> {
       return { users: [], dailyPoints: [], activities: [] };
     }
   } else {
-    // Local file fallback for development
     if (!fs.existsSync(DB_PATH)) {
       return { users: [], dailyPoints: [], activities: [] };
     }
@@ -82,7 +81,6 @@ export async function saveDb(db: DbShape): Promise<void> {
       throw error;
     }
   } else {
-    // Local file fallback for development
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf8");
   }
 }
@@ -92,7 +90,9 @@ export async function getUsers(): Promise<User[]> {
   return db.users;
 }
 
-export async function upsertUser(user: Omit<User, "id"> & { id?: number }): Promise<User> {
+export async function upsertUser(
+  user: Omit<User, "id"> & { id?: number }
+): Promise<User> {
   const db = await loadDb();
   const existingIndex = db.users.findIndex(
     (u) => u.stravaAthleteId === user.stravaAthleteId
@@ -128,15 +128,14 @@ export async function upsertDailyPoints(entry: DailyPoints): Promise<void> {
   const idx = db.dailyPoints.findIndex(
     (d) => d.userId === entry.userId && d.date === entry.date
   );
-  if (idx >= 0) {
-    db.dailyPoints[idx] = entry;
-  } else {
-    db.dailyPoints.push(entry);
-  }
+  if (idx >= 0) db.dailyPoints[idx] = entry;
+  else db.dailyPoints.push(entry);
   await saveDb(db);
 }
 
-export async function getRecentDailyPoints(limitDays = 60): Promise<DailyPoints[]> {
+export async function getRecentDailyPoints(
+  limitDays = 60
+): Promise<DailyPoints[]> {
   const db = await loadDb();
   return db.dailyPoints
     .slice()
@@ -146,9 +145,20 @@ export async function getRecentDailyPoints(limitDays = 60): Promise<DailyPoints[
 
 // -------- Activities helpers --------
 
+export async function replaceUserActivities(
+  userId: number,
+  newActivities: Activity[]
+): Promise<void> {
+  const db = await loadDb();
+  db.activities = db.activities.filter((a) => a.userId !== userId);
+  db.activities.push(...newActivities);
+  await saveDb(db);
+}
+
+// Keep your old helper in case you still want it somewhere
 export async function replaceUserActivitiesSince(
   userId: number,
-  startDate: string, // YYYY-MM-DD inclusive
+  startDate: string,
   newActivities: Activity[]
 ): Promise<void> {
   const db = await loadDb();
@@ -162,4 +172,13 @@ export async function replaceUserActivitiesSince(
 export async function getAllActivities(): Promise<Activity[]> {
   const db = await loadDb();
   return db.activities;
+}
+
+// -------- Single-user mode helper --------
+export async function clearAllData(): Promise<void> {
+  const db = await loadDb();
+  db.users = [];
+  db.dailyPoints = [];
+  db.activities = [];
+  await saveDb(db);
 }

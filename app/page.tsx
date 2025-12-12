@@ -7,7 +7,7 @@ import {
   getRecentDailyPoints,
   getAllActivities,
 } from "@/lib/db";
-import { getStravaAuthorizeUrl, START_DATE_STR } from "@/lib/strava";
+import { getStravaAuthorizeUrl } from "@/lib/strava";
 import UserSettings from "../components/UserSettings";
 
 export const dynamic = "force-dynamic";
@@ -113,12 +113,10 @@ export default async function Home({ searchParams }: PageProps) {
   // If we have any points, default to the most recent week's Monday.
   // Otherwise default to START_DATE_STR's Monday.
   const latestDate =
-    userPoints.length > 0
-      ? userPoints
-          .map((p) => p.date)
-          .sort()
-          .slice(-1)[0]
-      : START_DATE_STR;
+  userPoints.length > 0
+    ? userPoints.map((p) => p.date).sort().slice(-1)[0]
+    : formatDate(new Date());
+
 
   const selectedWeekStart = weekParam
     ? getWeekStart(weekParam)
