@@ -1,12 +1,7 @@
-// app/page.tsx
 import type React from "react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import {
-  getUsers,
-  getRecentDailyPoints,
-  getAllActivities,
-} from "@/lib/db";
+import { getUsers, getRecentDailyPoints, getAllActivities } from "@/lib/db";
 import { getStravaAuthorizeUrl } from "@/lib/strava";
 import UserSettings from "../components/UserSettings";
 
@@ -57,7 +52,7 @@ export default async function Home({ searchParams }: PageProps) {
     );
   }
 
-  // ✅ Option 1: require DOB to score (and avoid confusing 0-point weeks)
+  // ✅ Require DOB to score (Option 1)
   if (!activeUser.dob) {
     return (
       <main style={{ padding: "1.5rem", maxWidth: 960, margin: "0 auto" }}>
@@ -75,7 +70,6 @@ export default async function Home({ searchParams }: PageProps) {
           <div style={{ fontSize: "0.9rem" }}>
             Signed in as <strong>{activeUser.name || "Unknown user"}</strong>
           </div>
-          {/* Only pass this single user into settings to preserve privacy */}
           <UserSettings users={[activeUser]} authUrl={authUrl} />
         </div>
 
@@ -85,8 +79,7 @@ export default async function Home({ searchParams }: PageProps) {
           </h2>
           <p style={{ color: "#555", fontSize: "0.95rem", marginTop: "0.5rem" }}>
             Vitalité uses your age to calculate heart-rate zones. Open Settings,
-            add your DOB, then press <strong>Sync</strong> to compute points for
-            this week.
+            add your DOB, then press <strong>Sync</strong> to compute points.
           </p>
         </section>
       </main>
@@ -110,13 +103,15 @@ export default async function Home({ searchParams }: PageProps) {
       ? weekParamRaw[0]
       : undefined;
 
-  // If we have any points, default to the most recent week's Monday.
-  // Otherwise default to START_DATE_STR's Monday.
+  // If we have any points, default to the most recent point date;
+  // otherwise default to today.
   const latestDate =
-  userPoints.length > 0
-    ? userPoints.map((p) => p.date).sort().slice(-1)[0]
-    : formatDate(new Date());
-
+    userPoints.length > 0
+      ? userPoints
+          .map((p) => p.date)
+          .sort()
+          .slice(-1)[0]
+      : formatDate(new Date());
 
   const selectedWeekStart = weekParam
     ? getWeekStart(weekParam)
@@ -125,6 +120,10 @@ export default async function Home({ searchParams }: PageProps) {
   const weekStartStr = formatDate(selectedWeekStart);
   const weekEnd = addDays(selectedWeekStart, 6);
   const weekEndStr = formatDate(weekEnd);
+
+  // Determine current ("this") week's Monday
+  const thisWeekStart = getWeekStart(formatDate(new Date()));
+  const isViewingThisWeek = formatDate(selectedWeekStart) === formatDate(thisWeekStart);
 
   // filter points & activities for this week (active user only)
   const weekPoints = userPoints.filter(
@@ -164,8 +163,7 @@ export default async function Home({ searchParams }: PageProps) {
   // Auto-sync check: if no activities from today for THIS user, trigger sync
   const todayStr = formatDate(new Date());
   const hasTodayActivities = userActivities.some((a) => a.date === todayStr);
-  const shouldAutoSync =
-    !!activeUser && !hasTodayActivities && !sp?.noAutoSync;
+  const shouldAutoSync = !!activeUser && !hasTodayActivities && !sp?.noAutoSync;
 
   if (shouldAutoSync) {
     redirect(`/api/sync?userId=${activeUser.id}`);
@@ -176,9 +174,6 @@ export default async function Home({ searchParams }: PageProps) {
 
   function getDayLabel(dateStr: string) {
     const d = new Date(dateStr + "T00:00:00");
-    // getDay(): 0=Sun, 1=Mon, ..., 6=Sat
-    // Our week always starts with Monday, so
-    // Mon=1=>0, Tue=2=>1, ..., Sun=0=>6
     const idx = (d.getDay() + 6) % 7;
     return DAY_LABELS[idx];
   }
@@ -201,7 +196,6 @@ export default async function Home({ searchParams }: PageProps) {
         <div style={{ fontSize: "0.9rem" }}>
           Signed in as <strong>{activeUser.name || "Unknown user"}</strong>
         </div>
-        {/* Only pass this single user into settings to preserve privacy */}
         <UserSettings users={[activeUser]} authUrl={authUrl} />
       </div>
 
@@ -213,6 +207,7 @@ export default async function Home({ searchParams }: PageProps) {
             alignItems: "center",
             gap: "0.75rem",
             marginBottom: "0.4rem",
+            flexWrap: "wrap",
           }}
         >
           <a
@@ -221,11 +216,25 @@ export default async function Home({ searchParams }: PageProps) {
           >
             ←
           </a>
+
           <div>
             <div style={{ fontWeight: 500 }}>
               Week {weekStartStr} – {weekEndStr}
             </div>
+            {!isViewingThisWeek && (
+              <a
+                href="/"
+                style={{
+                  fontSize: "0.8rem",
+                  color: "#4a90e2",
+                  textDecoration: "none",
+                }}
+              >
+                This week
+              </a>
+            )}
           </div>
+
           <a
             href={`/?weekStart=${nextWeekStartStr}`}
             style={{ textDecoration: "none", fontSize: "1.2rem" }}
@@ -294,11 +303,9 @@ function DailyChart({
   const barWidth = 24;
   const gap = 16;
 
-  // Run icon SVG path
   const runIconPath =
     "M216-580q39 0 74 14t64 41l382 365h24q17 0 28.5-11.5T800-200q0-8-1.5-17T788-235L605-418l-71-214-74 18q-38 10-69-14t-31-63v-84l-28-14-154 206q-1 1-1 1.5t-1 1.5h40Zm0 80h-46q3 7 7.5 13t10.5 11l324 295q11 11 25 16t29 5h54L299-467q-17-17-38.5-25t-44.5-8ZM566-80q-30 0-57-11t-50-31L134-417q-46-42-51.5-103T114-631l154-206q17-23 45.5-30.5T368-861l28 14q21 11 32.5 30t11.5 42v84l74-19q30-8 58 7.5t38 44.5l65 196 170 170q20 20 27.5 43t7.5 49q0 50-35 85t-85 35H566Z";
 
-  // Workout icon SVG path
   const workoutIconPath =
     "m826-585-56-56 30-31-128-128-31 30-57-57 30-31q23-23 57-22.5t57 23.5l129 129q23 23 23 56.5T857-615l-31 30ZM346-104q-23 23-56.5 23T233-104L104-233q-23-23-23-56.5t23-56.5l30-30 57 57-31 30 129 129 30-31 57 57-30 30Zm397-336 57-57-303-303-57 57 303 303ZM463-160l57-58-302-302-58 57 303 303Zm-6-234 110-109-64-64-109 110 63 63Zm63 290q-23 23-57 23t-57-23L104-406q-23-23-23-57t23-57l57-57q23-23 56.5-23t56.5 23l63 63 110-110-63-62q-23-23-23-57t23-57l57-57q23-23 56.5-23t56.5 23l303 303q23 23 23 56.5T857-441l-57 57q-23 23-57 23t-57-23l-62-63-110 110 63 63q23 23 23 56.5T577-161l-57 57Z";
 
@@ -318,9 +325,7 @@ function DailyChart({
           a.name || "",
           `${a.movingMinutes} mins`,
           a.distanceKm ? `${a.distanceKm} km` : "",
-          typeof a.averageHeartrate === "number"
-            ? `avg HR ${a.averageHeartrate}`
-            : "",
+          typeof a.averageHeartrate === "number" ? `avg HR ${a.averageHeartrate}` : "",
           typeof a.maxHeartrate === "number" ? `max HR ${a.maxHeartrate}` : "",
           typeof a.calories === "number" ? `${a.calories} cal` : "",
         ]
@@ -352,49 +357,25 @@ function DailyChart({
 
         return (
           <g key={label}>
-            <rect
-              x={x}
-              y={y}
-              width={barWidth}
-              height={barHeight}
-              fill="#4a90e2"
-            >
+            <rect x={x} y={y} width={barWidth} height={barHeight} fill="#4a90e2">
               {tooltipText && <title>{tooltipText}</title>}
             </rect>
             {activityType && v > 0 && (
               <g
-                transform={`translate(${
-                  x + barWidth / 2 - 8
-                }, ${Math.max(y + barHeight / 2 - 8, y + 2)})`}
+                transform={`translate(${x + barWidth / 2 - 8}, ${Math.max(
+                  y + barHeight / 2 - 8,
+                  y + 2
+                )})`}
               >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 -960 960 960"
-                  fill="#fff"
-                  opacity="0.9"
-                >
-                  <path
-                    d={activityType === "run" ? runIconPath : workoutIconPath}
-                  />
+                <svg width="16" height="16" viewBox="0 -960 960 960" fill="#fff" opacity="0.9">
+                  <path d={activityType === "run" ? runIconPath : workoutIconPath} />
                 </svg>
               </g>
             )}
-            <text
-              x={x + barWidth / 2}
-              y={height - 10}
-              fontSize="8"
-              textAnchor="middle"
-            >
+            <text x={x + barWidth / 2} y={height - 10} fontSize="8" textAnchor="middle">
               {label}
             </text>
-            <text
-              x={x + barWidth / 2}
-              y={y - 4}
-              fontSize="8"
-              textAnchor="middle"
-              fill="#333"
-            >
+            <text x={x + barWidth / 2} y={y - 4} fontSize="8" textAnchor="middle" fill="#333">
               {v}
             </text>
           </g>
@@ -414,14 +395,7 @@ function PieChart({ current, max }: { current: number; max: number }) {
   const progress = pct * circumference;
   return (
     <svg width={128} height={128}>
-      <circle
-        cx={cx}
-        cy={cy}
-        r={r}
-        fill="#f6f8fa"
-        stroke="#eee"
-        strokeWidth={stroke}
-      />
+      <circle cx={cx} cy={cy} r={r} fill="#f6f8fa" stroke="#eee" strokeWidth={stroke} />
       <circle
         cx={cx}
         cy={cy}
@@ -434,24 +408,10 @@ function PieChart({ current, max }: { current: number; max: number }) {
         strokeLinecap="round"
         transform={`rotate(-90 ${cx} ${cy})`}
       />
-      <text
-        x={cx}
-        y={cy + 7}
-        textAnchor="middle"
-        fontSize="1.5rem"
-        fill="#222"
-        fontFamily="inherit"
-      >
+      <text x={cx} y={cy + 7} textAnchor="middle" fontSize="1.5rem" fill="#222" fontFamily="inherit">
         {current}
       </text>
-      <text
-        x={cx}
-        y={cy + 28}
-        textAnchor="middle"
-        fontSize="0.95rem"
-        fill="#555"
-        fontFamily="inherit"
-      >
+      <text x={cx} y={cy + 28} textAnchor="middle" fontSize="0.95rem" fill="#555" fontFamily="inherit">
         / {max}
       </text>
     </svg>
@@ -463,7 +423,7 @@ function PieChart({ current, max }: { current: number; max: number }) {
 function getWeekStart(dateStr: string): Date {
   const d = new Date(dateStr + "T00:00:00");
   const day = d.getDay(); // 0=Sun, 1=Mon,...
-  const diffToMonday = (day + 6) % 7; // days since Monday
+  const diffToMonday = (day + 6) % 7;
   return addDays(d, -diffToMonday);
 }
 
@@ -479,27 +439,3 @@ function formatDate(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
-
-// ---- table styles ----
-
-const thStyle: React.CSSProperties = {
-  border: "1px solid #ccc",
-  padding: "0.3rem 0.5rem",
-  textAlign: "left",
-};
-
-const thStyleRight: React.CSSProperties = {
-  ...thStyle,
-  textAlign: "right",
-};
-
-const tdStyle: React.CSSProperties = {
-  border: "1px solid #ddd",
-  padding: "0.3rem 0.5rem",
-  textAlign: "left",
-};
-
-const tdStyleRight: React.CSSProperties = {
-  ...tdStyle,
-  textAlign: "right",
-};
