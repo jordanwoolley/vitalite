@@ -216,7 +216,7 @@ export default async function Home({ searchParams }: PageProps) {
                   textDecoration: "none",
                 }}
               >
-                Back to this week
+                Back to current week
               </a>
             )}
           </div>
