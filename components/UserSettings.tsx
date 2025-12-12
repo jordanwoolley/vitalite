@@ -66,17 +66,18 @@ export default function UserSettings({
 
           <div
             style={{
-              position: "absolute",
-              top: "100%",
-              right: 0,
-              marginTop: "0.25rem",
+              position: "fixed",
+              top: 76,            // below the header area
+              left: 12,
+              right: 12,
               background: "white",
               border: "1px solid #ccc",
-              borderRadius: 4,
-              boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+              borderRadius: 8,
+              boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
               zIndex: 999,
-              minWidth: 240,
               padding: "0.5rem 0",
+              maxHeight: "70vh",
+              overflowY: "auto",
             }}
           >
             <div
@@ -132,6 +133,7 @@ export default function UserSettings({
                         border: "1px solid #ccc",
                         borderRadius: 3,
                         flex: 1,
+                        minWidth: 140,
                       }}
                     />
                     <button
@@ -162,7 +164,7 @@ export default function UserSettings({
                     </div>
                   )}
 
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <form
                       action={`/api/sync?userId=${u.id}`}
                       method="post"
