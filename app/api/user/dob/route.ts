@@ -1,41 +1,52 @@
 // app/api/user/dob/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getUserById, upsertUser } from "@/lib/db";
+import { loadDb, saveDb } from "@/lib/db";
+
+function normalizeDob(input: string): string | null {
+  // Accept "YYYY-MM-DD" (from <input type="date">), and tolerate "MM/DD/YYYY"
+  const s = (input || "").trim();
+
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // MM/DD/YYYY
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const mm = m[1].padStart(2, "0");
+    const dd = m[2].padStart(2, "0");
+    const yyyy = m[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return null;
+}
 
 export async function POST(req: NextRequest) {
-  try {
-    const form = await req.formData();
+  const form = await req.formData();
+  const userIdRaw = String(form.get("userId") ?? "");
+  const dobRaw = String(form.get("dob") ?? "");
 
-    const userIdRaw = form.get("userId");
-    const dobRaw = form.get("dob");
-
-    const userId = Number(userIdRaw);
-    const dob = typeof dobRaw === "string" ? dobRaw : "";
-
-    if (!userIdRaw || Number.isNaN(userId)) {
-      return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
-    }
-
-    // Expect YYYY-MM-DD from <input type="date">
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
-      return NextResponse.json({ error: "Invalid dob" }, { status: 400 });
-    }
-
-    const user = await getUserById(userId);
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    await upsertUser({ ...user, dob });
-
-    // Redirect back to home (same pattern as your sync/delete)
-    const back = new URL("/", req.url);
-back.searchParams.set("noAutoSync", "1");
-return NextResponse.redirect(back);
-
-
-  } catch (err) {
-    console.error("DOB update error:", err);
-    return NextResponse.json({ error: "Failed to update dob" }, { status: 500 });
+  const userId = Number(userIdRaw);
+  if (!userIdRaw || Number.isNaN(userId)) {
+    return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
   }
+
+  const dob = normalizeDob(dobRaw);
+  if (!dob) {
+    return NextResponse.json({ error: "Invalid dob" }, { status: 400 });
+  }
+
+  const db = await loadDb();
+  const idx = db.users.findIndex((u) => u.id === userId);
+  if (idx < 0) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  db.users[idx] = { ...db.users[idx], dob };
+  await saveDb(db);
+
+  // Prevent the lazy week-sync redirect immediately after saving DOB
+  const back = new URL("/", req.url);
+  back.searchParams.set("noAutoSync", "1");
+  return NextResponse.redirect(back);
 }

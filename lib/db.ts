@@ -129,7 +129,7 @@ export async function upsertUser(
     finalUser = {
       ...db.users[existingIndex],
       ...user,
-      dob: db.users[existingIndex].dob, // ✅ preserve DOB
+      dob: db.users[existingIndex].dob, // ✅ preserve DOB on reconnect
       id: db.users[existingIndex].id,
     };    
     db.users[existingIndex] = finalUser;
