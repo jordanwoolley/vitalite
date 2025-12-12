@@ -32,8 +32,8 @@ export type Activity = {
   type: string;
   movingMinutes: number;
   distanceKm: number;
-  startDateLocal: string; // ISO-ish
-  date: string; // YYYY-MM-DD (local day string, derived from start_date_local)
+  startDateLocal: string;
+  date: string; // YYYY-MM-DD
   averageHeartrate?: number;
   maxHeartrate?: number;
   calories?: number;
@@ -41,8 +41,8 @@ export type Activity = {
 
 export type SyncedWeek = {
   userId: number;
-  weekStart: string; // YYYY-MM-DD (Monday) in UTC week semantics
-  syncedAt: number; // ms epoch
+  weekStart: string; // YYYY-MM-DD (Monday, UTC semantics)
+  syncedAt: number;
 };
 
 type DbShape = {
@@ -59,27 +59,44 @@ const EMPTY_DB: DbShape = {
   syncedWeeks: [],
 };
 
+/**
+ * Load DB from Vercel KV or local file.
+ * IMPORTANT: merges defaults so newly-added fields (e.g. syncedWeeks)
+ * always exist even for old stored data.
+ */
 export async function loadDb(): Promise<DbShape> {
   if (USE_KV) {
     try {
-      const data = await kv.get<DbShape>(DB_KEY);
-      return data || { ...EMPTY_DB };
+      const data = await kv.get<Partial<DbShape>>(DB_KEY);
+
+      return {
+        ...EMPTY_DB,
+        ...(data ?? {}),
+        users: data?.users ?? [],
+        dailyPoints: data?.dailyPoints ?? [],
+        activities: data?.activities ?? [],
+        syncedWeeks: (data as any)?.syncedWeeks ?? [],
+      };
     } catch (error) {
       console.error("Error loading from KV:", error);
       return { ...EMPTY_DB };
     }
-  } else {
-    if (!fs.existsSync(DB_PATH)) return { ...EMPTY_DB };
-    const raw = fs.readFileSync(DB_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-
-    return {
-      users: parsed.users ?? [],
-      dailyPoints: parsed.dailyPoints ?? [],
-      activities: parsed.activities ?? [],
-      syncedWeeks: parsed.syncedWeeks ?? [],
-    };
   }
+
+  // ----- Local file fallback -----
+  if (!fs.existsSync(DB_PATH)) {
+    return { ...EMPTY_DB };
+  }
+
+  const raw = fs.readFileSync(DB_PATH, "utf8");
+  const parsed = JSON.parse(raw);
+
+  return {
+    users: parsed.users ?? [],
+    dailyPoints: parsed.dailyPoints ?? [],
+    activities: parsed.activities ?? [],
+    syncedWeeks: parsed.syncedWeeks ?? [],
+  };
 }
 
 export async function saveDb(db: DbShape): Promise<void> {
@@ -90,14 +107,22 @@ export async function saveDb(db: DbShape): Promise<void> {
   }
 }
 
+// -------- Users --------
+
 export async function getUsers(): Promise<User[]> {
   const db = await loadDb();
   return db.users;
 }
 
-export async function upsertUser(user: Omit<User, "id"> & { id?: number }): Promise<User> {
+export async function upsertUser(
+  user: Omit<User, "id"> & { id?: number }
+): Promise<User> {
   const db = await loadDb();
-  const existingIndex = db.users.findIndex((u) => u.stravaAthleteId === user.stravaAthleteId);
+
+  const existingIndex = db.users.findIndex(
+    (u) => u.stravaAthleteId === user.stravaAthleteId
+  );
+
   let finalUser: User;
 
   if (existingIndex >= 0) {
@@ -108,7 +133,9 @@ export async function upsertUser(user: Omit<User, "id"> & { id?: number }): Prom
     };
     db.users[existingIndex] = finalUser;
   } else {
-    const newId = db.users.length ? Math.max(...db.users.map((u) => u.id)) + 1 : 1;
+    const newId = db.users.length
+      ? Math.max(...db.users.map((u) => u.id)) + 1
+      : 1;
     finalUser = { ...user, id: newId } as User;
     db.users.push(finalUser);
   }
@@ -122,21 +149,29 @@ export async function getUserById(userId: number): Promise<User | undefined> {
   return db.users.find((u) => u.id === userId);
 }
 
+// -------- Daily points --------
+
 export async function upsertDailyPoints(entry: DailyPoints): Promise<void> {
   const db = await loadDb();
-  const idx = db.dailyPoints.findIndex((d) => d.userId === entry.userId && d.date === entry.date);
+  const idx = db.dailyPoints.findIndex(
+    (d) => d.userId === entry.userId && d.date === entry.date
+  );
   if (idx >= 0) db.dailyPoints[idx] = entry;
   else db.dailyPoints.push(entry);
   await saveDb(db);
 }
 
-export async function getRecentDailyPoints(limitDays = 60): Promise<DailyPoints[]> {
+export async function getRecentDailyPoints(
+  limitDays = 60
+): Promise<DailyPoints[]> {
   const db = await loadDb();
   return db.dailyPoints
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : -1))
     .slice(0, limitDays);
 }
+
+// -------- Activities --------
 
 export async function getAllActivities(): Promise<Activity[]> {
   const db = await loadDb();
@@ -145,37 +180,62 @@ export async function getAllActivities(): Promise<Activity[]> {
 
 /**
  * Upsert activities by (userId + stravaId).
- * This is essential for lazy week-by-week sync.
+ * Used by lazy week-by-week sync.
  */
-export async function upsertActivities(newActivities: Activity[]): Promise<void> {
+export async function upsertActivities(
+  newActivities: Activity[]
+): Promise<void> {
   const db = await loadDb();
 
   for (const a of newActivities) {
     const idx = db.activities.findIndex(
       (x) => x.userId === a.userId && x.stravaId === a.stravaId
     );
-    if (idx >= 0) db.activities[idx] = { ...db.activities[idx], ...a };
-    else db.activities.push(a);
+    if (idx >= 0) {
+      db.activities[idx] = { ...db.activities[idx], ...a };
+    } else {
+      db.activities.push(a);
+    }
   }
 
   await saveDb(db);
 }
 
-export async function isWeekSynced(userId: number, weekStart: string): Promise<boolean> {
+// -------- Synced weeks (lazy sync tracking) --------
+
+export async function isWeekSynced(
+  userId: number,
+  weekStart: string
+): Promise<boolean> {
   const db = await loadDb();
-  return db.syncedWeeks.some((w) => w.userId === userId && w.weekStart === weekStart);
+  return db.syncedWeeks.some(
+    (w) => w.userId === userId && w.weekStart === weekStart
+  );
 }
 
-export async function markWeekSynced(userId: number, weekStart: string): Promise<void> {
+export async function markWeekSynced(
+  userId: number,
+  weekStart: string
+): Promise<void> {
   const db = await loadDb();
-  const idx = db.syncedWeeks.findIndex((w) => w.userId === userId && w.weekStart === weekStart);
-  const entry: SyncedWeek = { userId, weekStart, syncedAt: Date.now() };
+  const idx = db.syncedWeeks.findIndex(
+    (w) => w.userId === userId && w.weekStart === weekStart
+  );
+
+  const entry: SyncedWeek = {
+    userId,
+    weekStart,
+    syncedAt: Date.now(),
+  };
+
   if (idx >= 0) db.syncedWeeks[idx] = entry;
   else db.syncedWeeks.push(entry);
+
   await saveDb(db);
 }
 
-// Single-user mode helper (your callback uses this)
+// -------- Single-user reset helper --------
+
 export async function clearAllData(): Promise<void> {
   await saveDb({ ...EMPTY_DB });
 }
