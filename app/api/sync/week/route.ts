@@ -5,7 +5,7 @@ import { syncUserStravaWeek } from "@/lib/strava";
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const userIdRaw = url.searchParams.get("userId");
-  const weekStart = url.searchParams.get("weekStart"); // YYYY-MM-DD (Monday)
+  const weekStart = url.searchParams.get("weekStart"); // YYYY-MM-DD
 
   const userId = Number(userIdRaw);
   if (!userIdRaw || Number.isNaN(userId)) {
@@ -18,12 +18,22 @@ export async function GET(req: NextRequest) {
   try {
     await syncUserStravaWeek(userId, weekStart);
 
-    // send them back to the week they requested
     const back = new URL("/", req.url);
     back.searchParams.set("weekStart", weekStart);
     return NextResponse.redirect(back);
-  } catch (err) {
-    console.error("Week sync error:", err);
-    return NextResponse.json({ error: "Failed to sync week" }, { status: 500 });
+  } catch (err: any) {
+    // ✅ This is what you should look at in Vercel Logs
+    console.error("Week sync error:", {
+      userId,
+      weekStart,
+      message: err?.message,
+      stack: err?.stack,
+    });
+
+    // ✅ Don’t strand the user on /api/sync/week
+    const back = new URL("/", req.url);
+    back.searchParams.set("weekStart", weekStart);
+    back.searchParams.set("syncError", "1");
+    return NextResponse.redirect(back);
   }
 }

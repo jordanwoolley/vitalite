@@ -22,6 +22,7 @@ const SESSION_COOKIE = "vitalite_user_id";
 
 export default async function Home({ searchParams }: PageProps) {
   const sp = await searchParams;
+  const syncError = sp?.syncError === "1";
 
   const userIdCookie = (await cookies()).get(SESSION_COOKIE)?.value;
 
@@ -202,6 +203,21 @@ export default async function Home({ searchParams }: PageProps) {
           >
             ←
           </a>
+          {syncError && (
+  <div
+    style={{
+      border: "1px solid #f5c2c7",
+      background: "#f8d7da",
+      color: "#842029",
+      padding: "0.6rem 0.8rem",
+      borderRadius: 6,
+      marginBottom: "0.75rem",
+      fontSize: "0.9rem",
+    }}
+  >
+    Sync failed. Please try again in a moment (or hit Sync in Settings).
+  </div>
+)}
 
           <div>
             <div style={{ fontWeight: 500 }}>

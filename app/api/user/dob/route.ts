@@ -30,8 +30,9 @@ export async function POST(req: NextRequest) {
 
     // Redirect back to home (same pattern as your sync/delete)
     const back = new URL("/", req.url);
-    back.searchParams.set("noAutoSync", "1");
-    return NextResponse.redirect(back);
+back.searchParams.set("noAutoSync", "1");
+return NextResponse.redirect(back);
+
 
   } catch (err) {
     console.error("DOB update error:", err);
