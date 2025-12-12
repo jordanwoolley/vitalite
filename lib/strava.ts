@@ -216,13 +216,13 @@ export async function syncUserStrava(userId: number) {
 console.log("stored date range", { first: dates[0], last: dates[dates.length - 1] });
 
 
-  for (const a of activities) {
-    const dayStr =
-      typeof a.start_date_local === "string"
-        ? a.start_date_local.slice(0, 10)
-        : new Date(a.start_date).toISOString().slice(0, 10);
-  
-    if (dayStr < START_DATE_STR) continue;
+for (const a of activities) {
+  const dayStr =
+    typeof a.start_date_local === "string"
+      ? a.start_date_local.slice(0, 10)
+      : new Date(a.start_date).toISOString().slice(0, 10);
+
+  if (dayStr < START_DATE_STR) continue;
 
     const movingMins = a.moving_time / 60;
     const distanceKm = a.distance ? a.distance / 1000 : 0;
