@@ -129,8 +129,9 @@ export async function upsertUser(
     finalUser = {
       ...db.users[existingIndex],
       ...user,
+      dob: db.users[existingIndex].dob, // ✅ preserve DOB
       id: db.users[existingIndex].id,
-    };
+    };    
     db.users[existingIndex] = finalUser;
   } else {
     const newId = db.users.length

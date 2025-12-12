@@ -101,9 +101,7 @@ export default async function Home({ searchParams }: PageProps) {
 
   // Default: this week
   const defaultWeekStart = getWeekStart(formatDate(new Date()));
-  const selectedWeekStart = weekParam
-    ? getWeekStart(weekParam)
-    : defaultWeekStart;
+  const selectedWeekStart = weekParam ? getWeekStart(weekParam) : defaultWeekStart;
 
   const weekStartStr = formatDate(selectedWeekStart);
   const weekEnd = addDays(selectedWeekStart, 6);
@@ -115,14 +113,17 @@ export default async function Home({ searchParams }: PageProps) {
     formatDate(selectedWeekStart) === formatDate(thisWeekStart);
 
   // ✅ Lazy sync: only sync the week when it’s viewed
+  const isCurrentWeek = isViewingThisWeek;
+
   const weekAlreadySynced = await isWeekSynced(activeUser.id, weekStartStr);
+
   const shouldSyncThisWeek =
-    !weekAlreadySynced && !sp?.noAutoSync;
+    !sp?.noAutoSync &&
+    (isCurrentWeek || !weekAlreadySynced);
+
 
   if (shouldSyncThisWeek) {
-    redirect(
-      `/api/sync/week?userId=${activeUser.id}&weekStart=${weekStartStr}`
-    );
+    redirect(`/api/sync/week?userId=${activeUser.id}&weekStart=${weekStartStr}`);
   }
 
   // Read from DB
@@ -187,6 +188,22 @@ export default async function Home({ searchParams }: PageProps) {
         <UserSettings users={[activeUser]} authUrl={authUrl} />
       </div>
 
+      {syncError && (
+        <div
+          style={{
+            border: "1px solid #f5c2c7",
+            background: "#f8d7da",
+            color: "#842029",
+            padding: "0.6rem 0.8rem",
+            borderRadius: 6,
+            marginBottom: "0.75rem",
+            fontSize: "0.9rem",
+          }}
+        >
+          Sync failed. Please try again in a moment (or hit Sync in Settings).
+        </div>
+      )}
+
       <section style={{ marginBottom: "1.2rem" }}>
         <div
           style={{
@@ -203,21 +220,6 @@ export default async function Home({ searchParams }: PageProps) {
           >
             ←
           </a>
-          {syncError && (
-  <div
-    style={{
-      border: "1px solid #f5c2c7",
-      background: "#f8d7da",
-      color: "#842029",
-      padding: "0.6rem 0.8rem",
-      borderRadius: 6,
-      marginBottom: "0.75rem",
-      fontSize: "0.9rem",
-    }}
-  >
-    Sync failed. Please try again in a moment (or hit Sync in Settings).
-  </div>
-)}
 
           <div>
             <div style={{ fontWeight: 500 }}>
@@ -339,7 +341,14 @@ function DailyChart({
 
   return (
     <svg width={width} height={height}>
-      <line x1={10} y1={height - 25} x2={width - 10} y2={height - 25} stroke="#ccc" strokeWidth={1} />
+      <line
+        x1={10}
+        y1={height - 25}
+        x2={width - 10}
+        y2={height - 25}
+        stroke="#ccc"
+        strokeWidth={1}
+      />
       {labels.map((label, i) => {
         const v = values[i];
         const barHeight = maxPoints ? (v / maxPoints) * chartHeight : 0;
@@ -355,7 +364,12 @@ function DailyChart({
               {tooltipText && <title>{tooltipText}</title>}
             </rect>
             {activityType && v > 0 && (
-              <g transform={`translate(${x + barWidth / 2 - 8}, ${Math.max(y + barHeight / 2 - 8, y + 2)})`}>
+              <g
+                transform={`translate(${x + barWidth / 2 - 8}, ${Math.max(
+                  y + barHeight / 2 - 8,
+                  y + 2
+                )})`}
+              >
                 <svg width="16" height="16" viewBox="0 -960 960 960" fill="#fff" opacity="0.9">
                   <path d={activityType === "run" ? runIconPath : workoutIconPath} />
                 </svg>
@@ -377,10 +391,12 @@ function DailyChart({
 function PieChart({ current, max }: { current: number; max: number }) {
   const pct = Math.min(current / max, 1);
   const r = 52;
-  const cx = 64, cy = 64;
+  const cx = 64;
+  const cy = 64;
   const stroke = 12;
   const circumference = 2 * Math.PI * r;
   const progress = pct * circumference;
+
   return (
     <svg width={128} height={128}>
       <circle cx={cx} cy={cy} r={r} fill="#f6f8fa" stroke="#eee" strokeWidth={stroke} />
