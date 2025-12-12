@@ -29,7 +29,10 @@ export async function POST(req: NextRequest) {
     await upsertUser({ ...user, dob });
 
     // Redirect back to home (same pattern as your sync/delete)
-    return NextResponse.redirect(new URL("/", req.url));
+    const back = new URL("/", req.url);
+    back.searchParams.set("noAutoSync", "1");
+    return NextResponse.redirect(back);
+
   } catch (err) {
     console.error("DOB update error:", err);
     return NextResponse.json({ error: "Failed to update dob" }, { status: 500 });
