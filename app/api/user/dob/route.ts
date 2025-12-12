@@ -3,13 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadDb, saveDb } from "@/lib/db";
 
 function normalizeDob(input: string): string | null {
-  // Accept "YYYY-MM-DD" (from <input type="date">), and tolerate "MM/DD/YYYY"
   const s = (input || "").trim();
 
-  // YYYY-MM-DD
+  // YYYY-MM-DD (from <input type="date">)
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  // MM/DD/YYYY
+  // MM/DD/YYYY (tolerate)
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
     const mm = m[1].padStart(2, "0");
@@ -19,6 +18,23 @@ function normalizeDob(input: string): string | null {
   }
 
   return null;
+}
+
+function formatDateUTC(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function addDaysUTC(base: Date, days: number): Date {
+  const d = new Date(base);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function getWeekStartUTC(dateStr: string): Date {
+  const d = new Date(dateStr + "T00:00:00Z");
+  const day = d.getUTCDay(); // 0=Sun..6=Sat
+  const diffToMonday = (day + 6) % 7;
+  return addDaysUTC(d, -diffToMonday);
 }
 
 export async function POST(req: NextRequest) {
@@ -45,8 +61,13 @@ export async function POST(req: NextRequest) {
   db.users[idx] = { ...db.users[idx], dob };
   await saveDb(db);
 
-  // Prevent the lazy week-sync redirect immediately after saving DOB
-  const back = new URL("/", req.url);
-  back.searchParams.set("noAutoSync", "1");
-  return NextResponse.redirect(back);
+  // ✅ Immediately sync current week once, so points appear right away
+  const todayStr = formatDateUTC(new Date());
+  const weekStartStr = formatDateUTC(getWeekStartUTC(todayStr));
+
+  const syncUrl = new URL("/api/sync/week", req.url);
+  syncUrl.searchParams.set("userId", String(userId));
+  syncUrl.searchParams.set("weekStart", weekStartStr);
+
+  return NextResponse.redirect(syncUrl);
 }
