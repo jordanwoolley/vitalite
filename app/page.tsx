@@ -23,8 +23,7 @@ const SESSION_COOKIE = "vitalite_user_id";
 export default async function Home({ searchParams }: PageProps) {
   const sp = await searchParams;
 
-  const cookieStore = cookies();
-  const userIdCookie = cookieStore.get(SESSION_COOKIE)?.value;
+  const userIdCookie = (await cookies()).get(SESSION_COOKIE)?.value;
 
   const users = await getUsers();
   const authUrl = getStravaAuthorizeUrl();
