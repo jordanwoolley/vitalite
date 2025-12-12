@@ -1,25 +1,18 @@
-// lib/strava.ts
 import "server-only";
 import {
   getUserById,
   upsertDailyPoints,
   upsertUser,
+  upsertActivities,
+  markWeekSynced,
   User,
-  replaceUserActivities, // ← use this
   Activity,
 } from "./db";
-
 
 const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID!;
 const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET!;
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL!;
 
-// ✏️ Start date for counting points (inclusive)
-//export const START_DATE_STR = "2025-12-01"; // YYYY-MM-DD
-
-/**
- * Calculate age from date of birth (YYYY-MM-DD format)
- */
 function calculateAge(dob: string): number {
   const [year, month, day] = dob.split("-").map(Number);
   const birthDate = new Date(year, month - 1, day);
@@ -32,20 +25,10 @@ function calculateAge(dob: string): number {
   return age;
 }
 
-/**
- * Calculate maximum heart rate based on age (220 - age)
- */
 function calculateMaxHeartRate(age: number): number {
   return 220 - age;
 }
 
-/**
- * Calculate daily points based on new Vitality rules:
- * - Steps: 3 pts @ 7k, 5 pts @ 10k, 8 pts @ 12.5k
- * - Heart rate: 5 pts for 30+ min @ 60% maxHR, 8 pts for 60+ min @ 60% maxHR or 30+ min @ 70% maxHR
- * - Calories: 5 pts for 30+ min, 150+ kcal @ 300+ kcal/hr, 8 pts for 300+ kcal @ 600+ kcal/hr or 60+ min, 300+ kcal @ 300+ kcal/hr
- * Returns the maximum points earned from any method (capped at 8 per day)
- */
 export function calculatePointsForDay(
   user: User,
   activities: Activity[],
@@ -53,60 +36,34 @@ export function calculatePointsForDay(
 ): number {
   let maxPoints = 0;
 
-  // Steps-based points
   if (steps >= 12_500) maxPoints = Math.max(maxPoints, 8);
   else if (steps >= 10_000) maxPoints = Math.max(maxPoints, 5);
   else if (steps >= 7_000) maxPoints = Math.max(maxPoints, 3);
 
-  // Need DOB for HR and calorie calculations
-  if (!user.dob) {
-    // If no DOB, can only use steps
-    return maxPoints;
-  }
+  if (!user.dob) return maxPoints;
 
   const age = calculateAge(user.dob);
   const maxHR = calculateMaxHeartRate(age);
   const hr60Threshold = maxHR * 0.6;
   const hr70Threshold = maxHR * 0.7;
 
-  // Check each activity for HR and calorie-based points
   for (const activity of activities) {
     const mins = activity.movingMinutes;
     const avgHR = activity.averageHeartrate;
     const calories = activity.calories;
 
-    // Heart rate-based points
     if (typeof avgHR === "number") {
-      // 8 pts: 60+ min @ 60% maxHR
-      if (mins >= 60 && avgHR >= hr60Threshold) {
-        maxPoints = Math.max(maxPoints, 8);
-      }
-      // 8 pts: 30+ min @ 70% maxHR
-      else if (mins >= 30 && avgHR >= hr70Threshold) {
-        maxPoints = Math.max(maxPoints, 8);
-      }
-      // 5 pts: 30+ min @ 60% maxHR
-      else if (mins >= 30 && avgHR >= hr60Threshold) {
-        maxPoints = Math.max(maxPoints, 5);
-      }
+      if (mins >= 60 && avgHR >= hr60Threshold) maxPoints = Math.max(maxPoints, 8);
+      else if (mins >= 30 && avgHR >= hr70Threshold) maxPoints = Math.max(maxPoints, 8);
+      else if (mins >= 30 && avgHR >= hr60Threshold) maxPoints = Math.max(maxPoints, 5);
     }
 
-    // Calorie-based points
     if (typeof calories === "number" && mins > 0) {
       const kcalPerHour = (calories / mins) * 60;
 
-      // 8 pts: 300+ kcal @ 600+ kcal/hr
-      if (calories >= 300 && kcalPerHour >= 600) {
-        maxPoints = Math.max(maxPoints, 8);
-      }
-      // 8 pts: 60+ min, 300+ kcal total, @ 300+ kcal/hr
-      else if (mins >= 60 && calories >= 300 && kcalPerHour >= 300) {
-        maxPoints = Math.max(maxPoints, 8);
-      }
-      // 5 pts: 30+ min, 150+ kcal, @ 300+ kcal/hr
-      else if (mins >= 30 && calories >= 150 && kcalPerHour >= 300) {
-        maxPoints = Math.max(maxPoints, 5);
-      }
+      if (calories >= 300 && kcalPerHour >= 600) maxPoints = Math.max(maxPoints, 8);
+      else if (mins >= 60 && calories >= 300 && kcalPerHour >= 300) maxPoints = Math.max(maxPoints, 8);
+      else if (mins >= 30 && calories >= 150 && kcalPerHour >= 300) maxPoints = Math.max(maxPoints, 5);
     }
   }
 
@@ -180,18 +137,29 @@ export async function getValidAccessToken(userId: number) {
   return user.accessToken;
 }
 
-export async function syncUserStrava(userId: number) {
+/**
+ * Lazy sync: fetch Strava activities ONLY for the requested week (UTC window),
+ * upsert them into DB, and compute points for that week.
+ */
+export async function syncUserStravaWeek(userId: number, weekStartStr: string) {
   const user = await getUserById(userId);
   if (!user) throw new Error("User not found");
 
   const token = await getValidAccessToken(userId);
 
-  // 👉 Pull the most recent 200 activities from Strava
+  // UTC window [weekStart, nextWeekStart)
+  const weekStart = new Date(`${weekStartStr}T00:00:00Z`);
+  if (Number.isNaN(weekStart.getTime())) throw new Error("Invalid weekStartStr");
+
+  const nextWeekStart = new Date(weekStart);
+  nextWeekStart.setUTCDate(nextWeekStart.getUTCDate() + 7);
+
+  const after = Math.floor(weekStart.getTime() / 1000);
+  const before = Math.floor(nextWeekStart.getTime() / 1000);
+
   const resp = await fetch(
-    "https://www.strava.com/api/v3/athlete/activities?per_page=200",
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
+    `https://www.strava.com/api/v3/athlete/activities?after=${after}&before=${before}&per_page=200`,
+    { headers: { Authorization: `Bearer ${token}` } }
   );
 
   if (!resp.ok) {
@@ -201,24 +169,17 @@ export async function syncUserStrava(userId: number) {
 
   const activities = (await resp.json()) as any[];
 
-   const userActivities: Activity[] = [];
-
-  const dates = userActivities.map(a => a.date).sort();
-console.log("stored date range", { first: dates[0], last: dates[dates.length - 1] });
-
-
-for (const a of activities) {
-  const dayStr =
-    typeof a.start_date_local === "string"
-      ? a.start_date_local.slice(0, 10)
-      : new Date(a.start_date).toISOString().slice(0, 10);
-
-  //if (dayStr < START_DATE_STR) continue;
+  const userActivities: Activity[] = activities.map((a) => {
+    // safest local day string
+    const dayStr =
+      typeof a.start_date_local === "string"
+        ? a.start_date_local.slice(0, 10)
+        : new Date(a.start_date).toISOString().slice(0, 10);
 
     const movingMins = a.moving_time / 60;
     const distanceKm = a.distance ? a.distance / 1000 : 0;
 
-    userActivities.push({
+    return {
       userId,
       stravaId: a.id,
       name: a.name,
@@ -229,35 +190,26 @@ for (const a of activities) {
       date: dayStr,
       averageHeartrate: a.average_heartrate ?? undefined,
       maxHeartrate: a.max_heartrate ?? undefined,
-      calories: a.calories ?? (typeof a.kilojoules === "number" ? Math.round(a.kilojoules) : undefined),
-    });
-  }
-
-  // Replace stored activities for this user from the start date onwards
-  await replaceUserActivities(userId, userActivities);
-
-  // Group activities by day and calculate points using new scoring system
-  const activitiesByDay: Record<string, Activity[]> = {};
-  for (const activity of userActivities) {
-    if (!activitiesByDay[activity.date]) {
-      activitiesByDay[activity.date] = [];
-    }
-    activitiesByDay[activity.date].push(activity);
-  }
-
-  console.log("user scoring inputs", {
-    hasDob: !!user.dob,
-    anyAvgHr: userActivities.some(a => typeof a.averageHeartrate === "number"),
-    anyCalories: userActivities.some(a => typeof a.calories === "number"),
+      calories:
+        a.calories ??
+        (typeof a.kilojoules === "number" ? Math.round(a.kilojoules) : undefined),
+    };
   });
-  
 
-  // Calculate points for each day
+  // Upsert just these week activities
+  await upsertActivities(userActivities);
+
+  // Group by day (YYYY-MM-DD) and compute points for the week only
+  const activitiesByDay: Record<string, Activity[]> = {};
+  for (const a of userActivities) {
+    if (!activitiesByDay[a.date]) activitiesByDay[a.date] = [];
+    activitiesByDay[a.date].push(a);
+  }
+
+  // Compute for each day that had activities in that week
   for (const [dayStr, dayActivities] of Object.entries(activitiesByDay)) {
-    const workoutMinutes = Math.round(
-      dayActivities.reduce((sum, a) => sum + a.movingMinutes, 0)
-    );
-    const steps = 0; // still 0 for now (until step source is integrated)
+    const workoutMinutes = Math.round(dayActivities.reduce((sum, x) => sum + x.movingMinutes, 0));
+    const steps = 0;
     const points = calculatePointsForDay(user, dayActivities, steps);
 
     await upsertDailyPoints({
@@ -268,4 +220,12 @@ for (const a of activities) {
       points,
     });
   }
+
+  await markWeekSynced(userId, weekStartStr);
+
+  return {
+    fetched: activities.length,
+    upserted: userActivities.length,
+    weekStart: weekStartStr,
+  };
 }

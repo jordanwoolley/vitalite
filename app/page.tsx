@@ -1,7 +1,12 @@
 import type React from "react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { getUsers, getRecentDailyPoints, getAllActivities } from "@/lib/db";
+import {
+  getUsers,
+  getRecentDailyPoints,
+  getAllActivities,
+  isWeekSynced,
+} from "@/lib/db";
 import { getStravaAuthorizeUrl } from "@/lib/strava";
 import UserSettings from "../components/UserSettings";
 
@@ -23,12 +28,10 @@ export default async function Home({ searchParams }: PageProps) {
   const users = await getUsers();
   const authUrl = getStravaAuthorizeUrl();
 
-  // Determine the "active" user for this browser from the cookie
   const activeUser = userIdCookie
     ? users.find((u) => u.id === Number(userIdCookie))
     : undefined;
 
-  // If no active user, show a simple landing page with a connect button
   if (!activeUser) {
     return (
       <main style={{ padding: "1.5rem", maxWidth: 960, margin: "0 auto" }}>
@@ -52,7 +55,7 @@ export default async function Home({ searchParams }: PageProps) {
     );
   }
 
-  // ✅ Require DOB to score (Option 1)
+  // Require DOB (Option 1)
   if (!activeUser.dob) {
     return (
       <main style={{ padding: "1.5rem", maxWidth: 960, margin: "0 auto" }}>
@@ -86,15 +89,7 @@ export default async function Home({ searchParams }: PageProps) {
     );
   }
 
-  // From here down we only care about this active user
-  const allPoints = await getRecentDailyPoints(365);
-  const activities = await getAllActivities();
-
-  const userPoints = allPoints.filter((p) => p.userId === activeUser.id);
-  const userActivities = activities.filter((a) => a.userId === activeUser.id);
-
-  // --- determine which week we're looking at ---
-
+  // Determine which week we're looking at
   const weekParamRaw = sp?.weekStart;
   const weekParam =
     typeof weekParamRaw === "string"
@@ -103,29 +98,39 @@ export default async function Home({ searchParams }: PageProps) {
       ? weekParamRaw[0]
       : undefined;
 
-  // If we have any points, default to the most recent point date;
-  // otherwise default to today.
-  const latestDate =
-    userPoints.length > 0
-      ? userPoints
-          .map((p) => p.date)
-          .sort()
-          .slice(-1)[0]
-      : formatDate(new Date());
-
+  // Default: this week
+  const defaultWeekStart = getWeekStart(formatDate(new Date()));
   const selectedWeekStart = weekParam
     ? getWeekStart(weekParam)
-    : getWeekStart(latestDate);
+    : defaultWeekStart;
 
   const weekStartStr = formatDate(selectedWeekStart);
   const weekEnd = addDays(selectedWeekStart, 6);
   const weekEndStr = formatDate(weekEnd);
 
-  // Determine current ("this") week's Monday
+  // "This week" UI logic
   const thisWeekStart = getWeekStart(formatDate(new Date()));
-  const isViewingThisWeek = formatDate(selectedWeekStart) === formatDate(thisWeekStart);
+  const isViewingThisWeek =
+    formatDate(selectedWeekStart) === formatDate(thisWeekStart);
 
-  // filter points & activities for this week (active user only)
+  // ✅ Lazy sync: only sync the week when it’s viewed
+  const weekAlreadySynced = await isWeekSynced(activeUser.id, weekStartStr);
+  const shouldSyncThisWeek =
+    !weekAlreadySynced && !sp?.noAutoSync;
+
+  if (shouldSyncThisWeek) {
+    redirect(
+      `/api/sync/week?userId=${activeUser.id}&weekStart=${weekStartStr}`
+    );
+  }
+
+  // Read from DB
+  const allPoints = await getRecentDailyPoints(365);
+  const activities = await getAllActivities();
+
+  const userPoints = allPoints.filter((p) => p.userId === activeUser.id);
+  const userActivities = activities.filter((a) => a.userId === activeUser.id);
+
   const weekPoints = userPoints.filter(
     (p) => p.date >= weekStartStr && p.date <= weekEndStr
   );
@@ -133,22 +138,17 @@ export default async function Home({ searchParams }: PageProps) {
     (a) => a.date >= weekStartStr && a.date <= weekEndStr
   );
 
-  // weekly totals (raw vs capped)
   const rawWeekTotal = weekPoints.reduce((sum, p) => sum + p.points, 0);
   const cappedWeekTotal = Math.min(40, rawWeekTotal);
 
-  // daily totals for chart (ensure all 7 days present)
   const dayStrings = [...Array(7)].map((_, i) =>
     formatDate(addDays(selectedWeekStart, i))
   );
 
   const dailyValues = dayStrings.map((d) =>
-    weekPoints
-      .filter((p) => p.date === d)
-      .reduce((sum, p) => sum + p.points, 0)
+    weekPoints.filter((p) => p.date === d).reduce((sum, p) => sum + p.points, 0)
   );
 
-  // Group activities by day for tooltips and icons
   const activitiesByDay = dayStrings.map((d) =>
     weekActivities.filter((a) => a.date === d)
   );
@@ -156,28 +156,15 @@ export default async function Home({ searchParams }: PageProps) {
   const hasAnyPointsThisWeek = dailyValues.some((v) => v > 0);
   const maxPoints = dailyValues.length ? Math.max(...dailyValues, 8) : 8;
 
-  // previous / next week links
   const prevWeekStartStr = formatDate(addDays(selectedWeekStart, -7));
   const nextWeekStartStr = formatDate(addDays(selectedWeekStart, 7));
 
-  // Auto-sync check: if no activities from today for THIS user, trigger sync
-  const todayStr = formatDate(new Date());
-  const hasTodayActivities = userActivities.some((a) => a.date === todayStr);
-  const shouldAutoSync = !!activeUser && !hasTodayActivities && !sp?.noAutoSync;
-
-  if (shouldAutoSync) {
-    redirect(`/api/sync?userId=${activeUser.id}`);
-  }
-
-  // ---- day of week helpers ----
   const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
   function getDayLabel(dateStr: string) {
     const d = new Date(dateStr + "T00:00:00");
     const idx = (d.getDay() + 6) % 7;
     return DAY_LABELS[idx];
   }
-
   const dayLabels = dayStrings.map((d) => getDayLabel(d));
 
   return (
@@ -199,7 +186,6 @@ export default async function Home({ searchParams }: PageProps) {
         <UserSettings users={[activeUser]} authUrl={authUrl} />
       </div>
 
-      {/* Week header + nav + totals */}
       <section style={{ marginBottom: "1.2rem" }}>
         <div
           style={{
@@ -230,7 +216,7 @@ export default async function Home({ searchParams }: PageProps) {
                   textDecoration: "none",
                 }}
               >
-                This week
+                Back to this week
               </a>
             )}
           </div>
@@ -242,6 +228,7 @@ export default async function Home({ searchParams }: PageProps) {
             →
           </a>
         </div>
+
         <div style={{ fontSize: "0.9rem" }}>
           Weekly total: <strong>{cappedWeekTotal} / 40</strong> points{" "}
           {rawWeekTotal > 40 && (
@@ -252,7 +239,6 @@ export default async function Home({ searchParams }: PageProps) {
         </div>
       </section>
 
-      {/* Weekly pie chart (progress) */}
       <section style={{ marginBottom: "1.5rem" }}>
         <h2 style={{ fontWeight: 500, marginBottom: "0.4rem" }}>
           Progress this week
@@ -260,7 +246,6 @@ export default async function Home({ searchParams }: PageProps) {
         <PieChart current={cappedWeekTotal} max={40} />
       </section>
 
-      {/* Daily points chart for this week */}
       <section style={{ marginBottom: "1.5rem" }}>
         <h2 style={{ fontWeight: 500, marginBottom: "0.4rem" }}>
           Points per day (this week)
@@ -284,7 +269,7 @@ export default async function Home({ searchParams }: PageProps) {
   );
 }
 
-// --- inline SVG bar chart ---
+// --- charts (unchanged) ---
 
 function DailyChart({
   labels,
@@ -338,14 +323,7 @@ function DailyChart({
 
   return (
     <svg width={width} height={height}>
-      <line
-        x1={10}
-        y1={height - 25}
-        x2={width - 10}
-        y2={height - 25}
-        stroke="#ccc"
-        strokeWidth={1}
-      />
+      <line x1={10} y1={height - 25} x2={width - 10} y2={height - 25} stroke="#ccc" strokeWidth={1} />
       {labels.map((label, i) => {
         const v = values[i];
         const barHeight = maxPoints ? (v / maxPoints) * chartHeight : 0;
@@ -361,12 +339,7 @@ function DailyChart({
               {tooltipText && <title>{tooltipText}</title>}
             </rect>
             {activityType && v > 0 && (
-              <g
-                transform={`translate(${x + barWidth / 2 - 8}, ${Math.max(
-                  y + barHeight / 2 - 8,
-                  y + 2
-                )})`}
-              >
+              <g transform={`translate(${x + barWidth / 2 - 8}, ${Math.max(y + barHeight / 2 - 8, y + 2)})`}>
                 <svg width="16" height="16" viewBox="0 -960 960 960" fill="#fff" opacity="0.9">
                   <path d={activityType === "run" ? runIconPath : workoutIconPath} />
                 </svg>
@@ -388,8 +361,7 @@ function DailyChart({
 function PieChart({ current, max }: { current: number; max: number }) {
   const pct = Math.min(current / max, 1);
   const r = 52;
-  const cx = 64,
-    cy = 64;
+  const cx = 64, cy = 64;
   const stroke = 12;
   const circumference = 2 * Math.PI * r;
   const progress = pct * circumference;
@@ -422,7 +394,7 @@ function PieChart({ current, max }: { current: number; max: number }) {
 
 function getWeekStart(dateStr: string): Date {
   const d = new Date(dateStr + "T00:00:00");
-  const day = d.getDay(); // 0=Sun, 1=Mon,...
+  const day = d.getDay(); // 0=Sun..6=Sat
   const diffToMonday = (day + 6) % 7;
   return addDays(d, -diffToMonday);
 }
