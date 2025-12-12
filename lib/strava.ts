@@ -200,7 +200,21 @@ export async function syncUserStrava(userId: number) {
 
   const activities = (await resp.json()) as any[];
 
+  console.log("syncUserStrava", {
+    userId,
+    fetched: activities.length,
+    sampleDates: activities.slice(0, 5).map(a => ({
+      start_date_local: a.start_date_local,
+      start_date: a.start_date,
+    })),
+  });
+  
+
   const userActivities: Activity[] = [];
+
+  const dates = userActivities.map(a => a.date).sort();
+console.log("stored date range", { first: dates[0], last: dates[dates.length - 1] });
+
 
   for (const a of activities) {
     const dayStr =
@@ -239,6 +253,13 @@ export async function syncUserStrava(userId: number) {
     }
     activitiesByDay[activity.date].push(activity);
   }
+
+  console.log("user scoring inputs", {
+    hasDob: !!user.dob,
+    anyAvgHr: userActivities.some(a => typeof a.averageHeartrate === "number"),
+    anyCalories: userActivities.some(a => typeof a.calories === "number"),
+  });
+  
 
   // Calculate points for each day
   for (const [dayStr, dayActivities] of Object.entries(activitiesByDay)) {
