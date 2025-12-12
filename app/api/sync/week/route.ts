@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncUserStravaWeek } from "@/lib/strava";
 
-export async function GET(req: NextRequest) {
+async function handle(req: NextRequest) {
   const url = new URL(req.url);
   const userIdRaw = url.searchParams.get("userId");
   const weekStart = url.searchParams.get("weekStart"); // YYYY-MM-DD
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const back = new URL("/", req.url);
     back.searchParams.set("weekStart", weekStart);
     back.searchParams.set("synced", "1");
-    back.searchParams.set("noAutoSync", "1"); // ✅ prevent immediate re-redirect
+    back.searchParams.set("noAutoSync", "1");
     return NextResponse.redirect(back);
   } catch (err: any) {
     console.error("Week sync error:", {
@@ -34,7 +34,16 @@ export async function GET(req: NextRequest) {
     const back = new URL("/", req.url);
     back.searchParams.set("weekStart", weekStart);
     back.searchParams.set("syncError", "1");
-    back.searchParams.set("noAutoSync", "1"); // ✅ prevent redirect loop
+    back.searchParams.set("noAutoSync", "1");
     return NextResponse.redirect(back);
   }
+}
+
+export async function GET(req: NextRequest) {
+  return handle(req);
+}
+
+// Optional: allows calling it from forms/fetch as POST too
+export async function POST(req: NextRequest) {
+  return handle(req);
 }
