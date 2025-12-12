@@ -33,6 +33,48 @@ export default async function Home({ searchParams }: PageProps) {
     ? users.find((u) => u.id === Number(userIdCookie))
     : undefined;
 
+  const needsDob = !activeUser.dob;
+
+  if (needsDob) {
+    return (
+      <main style={{ padding: "1.5rem", maxWidth: 960, margin: "0 auto" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "1rem",
+            marginBottom: "1.2rem",
+          }}
+        >
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 600 }}>Vitalité</h1>
+          <div style={{ fontSize: "0.9rem" }}>
+            Signed in as <strong>{activeUser.name || "Unknown user"}</strong>
+          </div>
+          <UserSettings users={[activeUser]} authUrl={authUrl} />
+        </div>
+
+        <section style={{ marginTop: "1rem" }}>
+          <h2 style={{ fontWeight: 600, fontSize: "1.1rem" }}>
+            Add your date of birth to enable scoring
+          </h2>
+          <p style={{ color: "#555", fontSize: "0.95rem", marginTop: "0.5rem" }}>
+            Vitalité uses your age to calculate heart-rate zones. Add your DOB in
+            settings, then re-sync Strava to compute points.
+          </p>
+          <p style={{ color: "#555", fontSize: "0.95rem", marginTop: "0.5rem" }}>
+            After saving, click “Sync” (or refresh) to update this week.
+          </p>
+          <a href={`/api/sync?userId=${activeUser.id}`} style={{ ... }}>
+            Sync now
+          </a>
+        </section>
+      </main>
+    );
+  }
+
+
   // If no active user, show a simple landing page with a connect button
   if (!activeUser) {
     return (
