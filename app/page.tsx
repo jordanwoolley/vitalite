@@ -23,6 +23,8 @@ const SESSION_COOKIE = "vitalite_user_id";
 export default async function Home({ searchParams }: PageProps) {
   const sp = await searchParams;
   const syncError = sp?.syncError === "1";
+  const noAutoSync = sp?.noAutoSync === "1";
+
 
   const userIdCookie = (await cookies()).get(SESSION_COOKIE)?.value;
 
@@ -117,14 +119,16 @@ export default async function Home({ searchParams }: PageProps) {
 
   const weekAlreadySynced = await isWeekSynced(activeUser.id, weekStartStr);
 
-  const shouldSyncThisWeek =
-    !sp?.noAutoSync &&
-    (isCurrentWeek || !weekAlreadySynced);
+// ✅ refresh current week always (unless noAutoSync or syncError)
+const shouldSyncThisWeek =
+  !noAutoSync &&
+  !syncError &&
+  (isViewingThisWeek || !weekAlreadySynced);
 
+if (shouldSyncThisWeek) {
+  redirect(`/api/sync/week?userId=${activeUser.id}&weekStart=${weekStartStr}`);
+}
 
-  if (shouldSyncThisWeek) {
-    redirect(`/api/sync/week?userId=${activeUser.id}&weekStart=${weekStartStr}`);
-  }
 
   // Read from DB
   const allPoints = await getRecentDailyPoints(365);

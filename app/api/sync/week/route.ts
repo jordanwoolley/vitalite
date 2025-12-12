@@ -20,9 +20,10 @@ export async function GET(req: NextRequest) {
 
     const back = new URL("/", req.url);
     back.searchParams.set("weekStart", weekStart);
+    back.searchParams.set("synced", "1");
+    back.searchParams.set("noAutoSync", "1"); // ✅ prevent immediate re-redirect
     return NextResponse.redirect(back);
   } catch (err: any) {
-    // ✅ This is what you should look at in Vercel Logs
     console.error("Week sync error:", {
       userId,
       weekStart,
@@ -30,10 +31,10 @@ export async function GET(req: NextRequest) {
       stack: err?.stack,
     });
 
-    // ✅ Don’t strand the user on /api/sync/week
     const back = new URL("/", req.url);
     back.searchParams.set("weekStart", weekStart);
     back.searchParams.set("syncError", "1");
+    back.searchParams.set("noAutoSync", "1"); // ✅ prevent redirect loop
     return NextResponse.redirect(back);
   }
 }
