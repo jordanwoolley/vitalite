@@ -1,21 +1,29 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 type User = {
   id: number;
   name: string;
   stravaAthleteId: number;
-  dob?: string | null;
+  dob?: string;
 };
 
 export default function UserSettings({
   users,
-  authUrl,
+  authUrl, // kept for compatibility, not used (no “connect another” link)
 }: {
   users: User[];
   authUrl: string;
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const update = () => setIsMobile(window.innerWidth < 640);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
   if (users.length === 0) return null;
 
@@ -24,7 +32,7 @@ export default function UserSettings({
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
       <button
-        onClick={() => setShowMenu(!showMenu)}
+        onClick={() => setShowMenu((v) => !v)}
         style={{
           display: "flex",
           alignItems: "center",
@@ -51,7 +59,7 @@ export default function UserSettings({
 
       {showMenu && (
         <>
-          {/* click-away overlay */}
+          {/* overlay to close */}
           <div
             style={{
               position: "fixed",
@@ -64,162 +72,159 @@ export default function UserSettings({
             onClick={() => setShowMenu(false)}
           />
 
+          {/* menu */}
           <div
-            style={{
-              position: "fixed",
-              top: 76,            // below the header area
-              left: 12,
-              right: 12,
-              background: "white",
-              border: "1px solid #ccc",
-              borderRadius: 8,
-              boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
-              zIndex: 999,
-              padding: "0.5rem 0",
-              maxHeight: "70vh",
-              overflowY: "auto",
-            }}
+            style={
+              isMobile
+                ? {
+                    position: "fixed",
+                    top: 76,
+                    left: 12,
+                    right: 12,
+                    background: "white",
+                    border: "1px solid #ccc",
+                    borderRadius: 8,
+                    boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
+                    zIndex: 999,
+                    padding: "0.75rem",
+                    maxHeight: "70vh",
+                    overflowY: "auto",
+                  }
+                : {
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: "0.25rem",
+                    background: "white",
+                    border: "1px solid #ccc",
+                    borderRadius: 6,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                    zIndex: 999,
+                    width: 420,
+                    maxWidth: "90vw",
+                    padding: "0.75rem",
+                  }
+            }
           >
-            <div
-              style={{
-                padding: "0.5rem 1rem",
-                borderBottom: "1px solid #eee",
-              }}
-            >
-              <strong>Settings</strong>
+            <div style={{ fontWeight: 700, marginBottom: "0.75rem" }}>
+              Settings
             </div>
 
-            {users.map((u) => {
-              const needsDob = !u.dob;
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
+              {users.map((u) => {
+                const needsDob = !u.dob;
 
-              return (
-                <div
-                  key={u.id}
-                  style={{
-                    padding: "0.5rem 1rem",
-                    borderBottom: "1px solid #eee",
-                  }}
-                >
+                return (
                   <div
+                    key={u.id}
                     style={{
-                      fontSize: "0.85rem",
-                      color: "#666",
-                      marginBottom: "0.5rem",
+                      border: "1px solid #eee",
+                      borderRadius: 8,
+                      padding: "0.75rem",
                     }}
                   >
-                    {u.name || `User ${u.stravaAthleteId}`}
-                  </div>
+                    <div style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+                      {u.name || `User ${u.stravaAthleteId}`}
+                    </div>
 
-                  {/* DOB form */}
-                  <form
-                    action="/api/user/dob"
-                    method="post"
-                    style={{
-                      display: "flex",
-                      gap: "0.5rem",
-                      alignItems: "center",
-                      marginBottom: "0.5rem",
-                    }}
-                  >
-                    <input type="hidden" name="userId" value={u.id} />
-                    <input
-                      type="date"
-                      name="dob"
-                      defaultValue={u.dob ?? ""}
-                      required
+                    {/* DOB form */}
+                    <form
+                      action="/api/user/dob"
+                      method="post"
                       style={{
-                        padding: "0.25rem 0.4rem",
-                        fontSize: "0.85rem",
-                        border: "1px solid #ccc",
-                        borderRadius: 3,
-                        flex: 1,
-                        minWidth: 140,
-                      }}
-                    />
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "0.25rem 0.5rem",
-                        fontSize: "0.85rem",
-                        background: "#f6f8fa",
-                        border: "1px solid #ccc",
-                        borderRadius: 3,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Save DOB
-                    </button>
-                  </form>
-
-                  {needsDob && (
-                    <div
-                      style={{
-                        fontSize: "0.8rem",
-                        color: "#b00",
+                        display: "flex",
+                        gap: "0.5rem",
+                        alignItems: "center",
+                        flexWrap: "wrap",
                         marginBottom: "0.5rem",
                       }}
                     >
-                      Add DOB to enable points from workouts.
-                    </div>
-                  )}
-
-                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <form
-                      action={`/api/sync?userId=${u.id}`}
-                      method="post"
-                      style={{ display: "inline" }}
-                    >
-                      <button
-                        type="submit"
-                        disabled={needsDob}
-                        title={needsDob ? "Set DOB first" : "Sync Strava activities"}
+                      <input type="hidden" name="userId" value={u.id} />
+                      <input
+                        type="date"
+                        name="dob"
+                        defaultValue={u.dob ?? ""}
+                        required
                         style={{
-                          padding: "0.25rem 0.5rem",
-                          fontSize: "0.85rem",
-                          background: needsDob ? "#f2f2f2" : "#e7f3ff",
-                          border: "1px solid #4a90e2",
-                          borderRadius: 3,
-                          cursor: needsDob ? "not-allowed" : "pointer",
-                          color: "#333",
-                          opacity: needsDob ? 0.6 : 1,
+                          padding: "0.35rem 0.5rem",
+                          fontSize: "0.9rem",
+                          border: "1px solid #ccc",
+                          borderRadius: 6,
+                          flex: 1,
+                          minWidth: 160,
                         }}
-                      >
-                        Sync
-                      </button>
-                    </form>
-
-                    <form
-                      action={`/api/user/delete?userId=${u.id}`}
-                      method="post"
-                      style={{ display: "inline" }}
-                      onSubmit={(e) => {
-                        if (!confirm("Disconnect this Strava account?")) {
-                          e.preventDefault();
-                        }
-                      }}
-                    >
+                      />
                       <button
                         type="submit"
                         style={{
-                          padding: "0.25rem 0.5rem",
-                          fontSize: "0.85rem",
-                          background: "#fee",
-                          border: "1px solid #fcc",
-                          borderRadius: 3,
+                          padding: "0.35rem 0.6rem",
+                          fontSize: "0.9rem",
+                          background: "#f6f8fa",
+                          border: "1px solid #ccc",
+                          borderRadius: 6,
                           cursor: "pointer",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        Disconnect
+                        Save DOB
                       </button>
                     </form>
-                  </div>
-                </div>
-              );
-            })}
 
-            {/* optional connect link if you ever show settings without active user */}
-            
+                    {needsDob && (
+                      <div style={{ fontSize: "0.85rem", color: "#b00", marginBottom: "0.6rem" }}>
+                        DOB required to score workout points.
+                      </div>
+                    )}
+
+                    {/* actions */}
+                    <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                      <form action={`/api/sync?userId=${u.id}`} method="post" style={{ display: "inline" }}>
+                        <button
+                          type="submit"
+                          disabled={needsDob}
+                          title={needsDob ? "Set DOB first" : "Sync this week"}
+                          style={{
+                            padding: "0.35rem 0.6rem",
+                            fontSize: "0.9rem",
+                            background: needsDob ? "#f2f2f2" : "#e7f3ff",
+                            border: "1px solid #4a90e2",
+                            borderRadius: 6,
+                            cursor: needsDob ? "not-allowed" : "pointer",
+                            color: "#333",
+                            opacity: needsDob ? 0.6 : 1,
+                          }}
+                        >
+                          Sync
+                        </button>
+                      </form>
+
+                      <form
+                        action={`/api/user/delete?userId=${u.id}`}
+                        method="post"
+                        style={{ display: "inline" }}
+                        onSubmit={(e) => {
+                          if (!confirm("Disconnect this Strava account?")) e.preventDefault();
+                        }}
+                      >
+                        <button
+                          type="submit"
+                          style={{
+                            padding: "0.35rem 0.6rem",
+                            fontSize: "0.9rem",
+                            background: "#fee",
+                            border: "1px solid #fcc",
+                            borderRadius: 6,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Disconnect
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </>
       )}
